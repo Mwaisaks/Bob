@@ -1,0 +1,24 @@
+[project]
+name = "bob"
+version = "0.1.0"
+description = "Offline-first financial agent for Kenyan students"
+requires-python = ">=3.10"
+
+dependencies = [
+    "ollama",          # Ollama Python client
+    "pydantic",        # Schema validation for tool outputs
+    "rich",            # Terminal UI & pretty printing
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "tools*"]
