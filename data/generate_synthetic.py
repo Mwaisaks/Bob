@@ -175,7 +175,8 @@ def sms_fuliza_borrow(rng, borrow_amount, original_tx_amount, dt, balance) -> st
     repay_date = dt + timedelta(days=3)
     return (
         f"{txn_code(rng)} Confirmed. Your M-PESA transaction of {fmt_amount(original_tx_amount)} "
-        f"has been completed. Fuliza M-PESA amount of {fmt_amount(borrow_amount)}. "
+        f"has been completed on {fmt_date(dt)} at {fmt_time(dt)}. "
+        f"Fuliza M-PESA amount of {fmt_amount(borrow_amount)}. "
         f"Repayment date: {fmt_date(repay_date)}. "
         f"Daily charge {fmt_amount(FULIZA_DAILY_CHARGE)}. "
         f"New M-PESA balance is {fmt_amount(balance)}."
