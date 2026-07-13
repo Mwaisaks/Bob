@@ -1,14 +1,29 @@
-import ollama
+"""
+smoke_test.py — verifies the Gemma 4 tool-calling round-trip before any real agent code.
+
+Two paths are tested:
+  1. Native function calling via Gemma 4 (gemma4:e2b) — the primary path.
+  2. JSON-mode dispatch via Gemma 3 (gemma3:4b) — kept as documented fallback.
+
+Run with: python demo/smoke_test.py
+"""
+
 import json
 import re
 
-# Step 1: The actual Python function Bob will call
+import ollama
+
+MODEL_PRIMARY = "gemma4:e2b"
+MODEL_FALLBACK = "gemma3:4b"
+
+
 def get_weather(city: str) -> dict:
-    # Fake data for now — this is just a smoke test
+    """Dummy tool. Returns hardcoded data — smoke test only."""
     return {"city": city, "temperature": "28°C", "condition": "sunny"}
 
-# Step 2: The schema — describes the tool to Gemma
-weather_tool = {
+
+# Tool schema in the format Ollama expects
+WEATHER_TOOL = {
     "type": "function",
     "function": {
         "name": "get_weather",
@@ -18,54 +33,103 @@ weather_tool = {
             "properties": {
                 "city": {"type": "string", "description": "The city name"}
             },
-            "required": ["city"]
-        }
-    }
+            "required": ["city"],
+        },
+    },
 }
 
-# Step 3: System prompt that enforces JSON tool calls
-SYSTEM_PROMPT = """You are a helpful assistant with access to tools.
-When you need to use a tool, respond ONLY with valid JSON in this exact format:
-{"tool": "tool_name", "args": {"arg1": "value1"}}
+TOOL_REGISTRY = {
+    "get_weather": get_weather,
+}
 
-Available tools:
-- get_weather(city: str) -> returns weather for a city
 
-Do not add any text before or after the JSON when calling a tool."""
+# ---------------------------------------------------------------------------
+# Path 1: Native function calling (Gemma 4)
+# ---------------------------------------------------------------------------
 
-# Step 4: Send the message
-print("Sending message to Gemma (JSON-mode tool calling)...")
+print(f"\n[1/2] Native tool calling — {MODEL_PRIMARY}")
 
 response = ollama.chat(
-    model="gemma3:4b",
-    messages=[
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "What's the weather like in Nairobi?"}
-    ]
+    model=MODEL_PRIMARY,
+    messages=[{"role": "user", "content": "What's the weather like in Nairobi?"}],
+    tools=[WEATHER_TOOL],
+    options={"num_ctx": 8192},
 )
 
-raw = response.message.content.strip()
-raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
-print(f"Gemma raw response: {raw}")
+if response.message.tool_calls:
+    for call in response.message.tool_calls:
+        fn_name = call.function.name
+        fn_args = call.function.arguments  # dict, no parsing needed
 
-# Step 5: Parse and dispatch
+        print(f"  tool called : {fn_name}")
+        print(f"  arguments   : {fn_args}")
+
+        if fn_name in TOOL_REGISTRY:
+            result = TOOL_REGISTRY[fn_name](**fn_args)
+            print(f"  result      : {result}")
+
+            # Second turn: feed the tool result back so the model can answer
+            final = ollama.chat(
+                model=MODEL_PRIMARY,
+                messages=[
+                    {"role": "user", "content": "What's the weather like in Nairobi?"},
+                    response.message,
+                    {"role": "tool", "content": str(result), "name": fn_name},
+                ],
+                options={"num_ctx": 8192},
+            )
+            print(f"\n  final answer: {final.message.content}")
+        else:
+            print(f"  unknown tool: {fn_name}")
+else:
+    print("  model did not trigger a tool call — answered directly")
+    print(f"  response: {response.message.content}")
+
+
+# ---------------------------------------------------------------------------
+# Path 2: JSON-mode dispatch (Gemma 3 fallback)
+# gemma3:4b does not support the native tools parameter; we prompt-engineer
+# a strict JSON response and dispatch it ourselves.
+# ---------------------------------------------------------------------------
+
+FALLBACK_SYSTEM = """You are a helpful assistant with access to tools.
+When you need to call a tool, respond ONLY with valid JSON:
+{"tool": "tool_name", "args": {"arg_name": "value"}}
+
+Available tools:
+- get_weather(city: str)
+
+No explanation, no markdown — raw JSON only."""
+
+print(f"\n[2/2] JSON-mode fallback — {MODEL_FALLBACK}")
+
+fb_response = ollama.chat(
+    model=MODEL_FALLBACK,
+    messages=[
+        {"role": "system", "content": FALLBACK_SYSTEM},
+        {"role": "user", "content": "What's the weather like in Nairobi?"},
+    ],
+)
+
+raw = fb_response.message.content.strip()
+raw = re.sub(r"```(?:json)?\s*", "", raw).strip()  # strip markdown fences if present
+
 try:
     call = json.loads(raw)
-    tool_name = call["tool"]
-    args = call["args"]
-    print(f"\n✅ Tool call detected: {tool_name}({args})")
+    fn_name = call["tool"]
+    fn_args = call["args"]
 
-    # Dispatch
-    if tool_name == "get_weather":
-        result = get_weather(**args)
-        print(f"Tool result: {result}")
+    print(f"  tool called : {fn_name}")
+    print(f"  arguments   : {fn_args}")
+
+    if fn_name in TOOL_REGISTRY:
+        result = TOOL_REGISTRY[fn_name](**fn_args)
+        print(f"  result      : {result}")
     else:
-        print(f"Unknown tool: {tool_name}")
+        print(f"  unknown tool: {fn_name}")
 
 except json.JSONDecodeError:
-    print(f"\n⚠️  Model did not return JSON. Raw output was:\n{raw}")
-    print("Fallback: treating as plain text answer.")
+    print(f"  model returned non-JSON — fallback to plain text")
+    print(f"  raw output: {raw}")
 
-
-print("Gemma's response:")
-print(f"  tool_calls: {response.message.tool_calls}")
+print("\nSmoke test complete.")
