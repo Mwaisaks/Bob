@@ -8,6 +8,7 @@ dependencies = [
     "ollama",          # Ollama Python client
     "pydantic",        # Schema validation for tool outputs
     "rich",            # Terminal UI & pretty printing
+    "numpy",           # Cosine similarity for knowledge lookup
 ]
 
 [project.optional-dependencies]

@@ -24,6 +24,11 @@ build/
 data/real/
 *.sqlite
 
+# Generated data files — rebuild with ingest.py and knowledge_lookup.py --build
+data/bob.db
+data/knowledge_embeddings.pkl
+data/cached_rates.json
+
 # Ollama / model weights — huge files, never commit
 *.gguf
 *.bin
