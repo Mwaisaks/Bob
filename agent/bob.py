@@ -37,19 +37,27 @@ MODEL = "gemma4:e2b"
 NUM_CTX = 8192
 PERSONAS = ["brian", "wanjiku", "athman"]
 
-SYSTEM_PROMPT = """\
-You are Bob, a personal M-Pesa finance assistant for Kenyan university students.
-You have access to the user's transaction history through a set of tools.
+_PERSONA_DETAILS = {
+    "brian":   ("Brian Otieno",   "KU Year 2, HELB student, Nairobi"),
+    "wanjiku": ("Wanjiku Kamau",  "USIU Year 3, mitumba resale business, Nairobi"),
+    "athman":  ("Athman Hassan",  "Strathmore Year 4, part-time software developer, Nairobi"),
+}
+
+
+def _make_system_prompt(persona: str) -> str:
+    name, description = _PERSONA_DETAILS[persona]
+    return f"""\
+You are Bob, a personal M-Pesa finance assistant.
+You are currently speaking with {name} ({description}).
+Their transaction history is already loaded — use the tools to query it.
 
 Rules:
-- Always use a tool to look up data before making any financial claim.
-- Ground every number in what the tool returns — never guess or estimate.
-- Be direct and practical. The students you help have real money pressures.
-- When you spot a problem (Fuliza dependency, fee bleed, spending > income), name it clearly.
-- Keep responses concise — two or three sentences is usually enough.
+- NEVER ask which student you are talking to. You are talking to {name}. Always pass persona='{persona}' to any ledger tool.
+- Always call a tool before stating any financial number. Never estimate.
+- Be direct and practical. Name problems clearly (Fuliza dependency, fee bleed, spending > income).
+- Keep responses to 2–4 sentences unless the user asks for detail.
+- When using knowledge from a tool, cite the source (e.g. "According to fuliza.md...")."""
 
-The persona (which student's data to query) is set automatically — do not ask the user for it.\
-"""
 
 
 class BobAgent:
@@ -57,7 +65,9 @@ class BobAgent:
         if persona not in PERSONAS:
             raise ValueError(f"Unknown persona '{persona}'. Choose from: {PERSONAS}")
         self.persona = persona
+        self.system_prompt = _make_system_prompt(persona)
         self.history: list[dict] = []
+        self.last_trace: list[dict] = []
 
     def _execute_tool(self, name: str, args: dict) -> str:
         """Run one tool call, injecting persona for ledger tools, and return JSON result."""
@@ -66,15 +76,18 @@ class BobAgent:
         if name not in _NO_PERSONA_TOOLS:
             args["persona"] = self.persona
         result = ALL_TOOL_REGISTRY[name](**args)
-        return json.dumps(result, ensure_ascii=False)
+        result_json = json.dumps(result, ensure_ascii=False)
+        self.last_trace.append({"tool": name, "args": args, "result": result})
+        return result_json
 
     def chat(self, user_message: str) -> str:
         """
         One conversational turn.
         Returns Bob's final answer as a plain string.
         """
+        self.last_trace = []   # clear trace for this turn
         messages = (
-            [{"role": "system", "content": SYSTEM_PROMPT}]
+            [{"role": "system", "content": self.system_prompt}]
             + self.history
             + [{"role": "user", "content": user_message}]
         )
@@ -100,11 +113,10 @@ class BobAgent:
                     "name": name,
                 })
 
-            # Second call: Gemma reads the tool results and answers the user
             final = ollama.chat(
                 model=MODEL,
                 messages=(
-                    [{"role": "system", "content": SYSTEM_PROMPT}]
+                    [{"role": "system", "content": self.system_prompt}]
                     + self.history
                 ),
                 options={"num_ctx": NUM_CTX},
