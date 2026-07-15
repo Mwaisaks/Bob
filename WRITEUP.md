@@ -126,4 +126,5 @@ The numbers prove what I expected but hadn't shown before building: the boom-bus
 ---
 
 *Repo: https://github.com/Mwaisaks/Bob*  
+*Demo video: https://youtu.be/B8S_3AQ4qTs*  
 *No real financial data is committed to this repository. The statement parser was built and verified locally against one real, never-committed M-Pesa statement.*

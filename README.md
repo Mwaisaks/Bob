@@ -12,9 +12,11 @@ Bob is an offline-first financial agent for Kenyan university students. It reads
 
 ## Demo
 
+**Video walkthrough (with narration): https://youtu.be/B8S_3AQ4qTs**
+
 [![asciicast](https://asciinema.org/a/ewKl1zzRgpCGOouT.svg)](https://asciinema.org/a/ewKl1zzRgpCGOouT)
 
-A real, unedited terminal recording — cold start, a multi-tool question, a live-rates question, then the network is killed and the same question is asked again to show the offline fallback (Phase 5's "kill-the-WiFi" test). Every wait is real Gemma 4 CPU inference, not sped up. Reproducible via `demo/record_demo.py` (drives the same `terminal_ui.py` a human would run, with scripted typing instead of manual).
+The asciicast above is the raw, unedited source recording the video was cut from — cold start, a multi-tool question, a live-rates question, then the network is killed and the same question is asked again to show the offline fallback (Phase 5's "kill-the-WiFi" test). Every wait is real Gemma 4 CPU inference, not sped up. Reproducible via `demo/record_demo.py` (drives the same `terminal_ui.py` a human would run, with scripted typing instead of manual).
 
 ```
 You: where does my money leak?
