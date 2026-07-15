@@ -23,6 +23,8 @@ build/
 # Real user data — the whole point of this gitignore
 data/real/
 *.sqlite
+MPESA_Statement*
+*.pdf
 
 # Generated data files — rebuild with ingest.py and knowledge_lookup.py --build
 data/bob.db

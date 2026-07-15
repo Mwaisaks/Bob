@@ -1,116 +1,202 @@
-# Bob — Your Offline Financial Peer
+# Bob — Offline M-Pesa Finance Agent
 
-> *"HELB lands on Thursday. By Sunday you're on Fuliza. By week three you're broke and you don't even know where it went."*
->
-> Bob does.
+> **HELB lands Thursday, meant to last the whole semester. By Tuesday it's gone.** Not because students are irresponsible — because a KES 40,000 lump sum arriving into a single M-Pesa account with no structure is a design problem, not a discipline problem. Bob fixes the information gap.
 
-**Bob is a local AI financial agent for Kenyan university students.** He reads your M-Pesa SMS history, reasons over your real spending, and answers "can I afford this?" with your actual numbers — not generic budgeting advice. He runs entirely on your laptop or phone. Your M-Pesa messages never leave your device.
+Bob is an offline-first financial agent for Kenyan university students. It reads your real M-Pesa statement (the one you already get by dialing `*334#`), runs it through Gemma 4 locally, and answers *"where does my money go?"* with your actual numbers — no server, no account, no data leaving your machine.
 
----
-
-## The Problem
-
-Every Kenyan student finance app stops at charts. PesaSense shows you the pie chart. CountPesa shows you the bar graph. Then you close the app and make the same decision anyway.
-
-The intelligence layer — *"why are you always broke by week three? Here's the exact pattern"* — doesn't exist yet. Bob is that layer.
-
-And the trust problem is real: no student is going to hand their M-Pesa history to a server they've never heard of. Bob solves this by running the model locally. Gemma 4 reasons over your data on your own machine. Nothing is sent anywhere.
+**Track:** Autonomous Agent — Build with Gemma Challenge (GDG Embu)  
+**Model:** Gemma 4 E2B (local via Ollama, CPU-only)  
+**Privacy:** all inference runs on-device; your M-Pesa data never leaves your machine
 
 ---
 
-## What Bob Does
+## Demo
 
-Bob is a conversational agent built on **Gemma 4**, running locally via Ollama. Ask him a real question about your money:
+```
+You: where does my money leak?
 
-- *"Can I afford this KES 3,500 jacket right now?"*
-- *"Where does my money actually go every month?"*
-- *"Is my Fuliza usage getting worse or better?"*
-- *"How much am I losing to M-Pesa fees every month?"*
+  ⚙  get_income_vs_spending(days=30)
+  ✓  Income KES 1,500  ·  Spend KES 3,285  ·  net negative
+  ⚙  get_fee_analysis(days=30)
+  ✓  Total fees: KES 52
 
-He answers by calling real tools — a local ledger built from your parsed M-Pesa SMS, a fee calculator with the live Safaricom tariff, a HELB knowledge base, an affordability checker — and then reasoning over those tool results to give you a grounded answer. He will never quote a number he didn't get from a tool. That's a hard rule baked into his design.
+╭─ Bob ───────────────────────────────────────────────────────────────╮
+│  Your main leak is spending KES 1,785 more than you earned last     │
+│  month. On top of that, KES 52.50 went to Fuliza daily charges —    │
+│  that's money that bought you nothing. Start with a weekly budget   │
+│  and repay Fuliza in full the moment money arrives.                 │
+╰─────────────────────────────────────────────────────────────────────╯
+```
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Bob (agent loop)                  │
-│               Gemma 4 via Ollama (local)             │
-│         native function calling / tool dispatch      │
-└────────┬────────────────────────────────────────────┘
-         │ calls
-         ▼
-┌────────────────────────────────────────────────────────────────┐
-│                         Tool Layer                             │
-│  sms_parser  │  ledger  │  fee_calculator  │  affordability   │
-│  budget      │  categorizer               │  knowledge_lookup │
-│  live_rates (online-optional, degrades gracefully offline)     │
-└────────────────────────┬───────────────────────────────────────┘
-                         │ reads
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│              Local Data (never uploaded)             │
-│   M-Pesa SMS  │  SQLite ledger  │  knowledge/ corpus │
-└─────────────────────────────────────────────────────┘
+Raw M-Pesa SMS               Real M-Pesa Statement PDF
+(demo personas)               (*334# → password-protected)
+      │                             │
+      ▼                             ▼
+┌─────────────────────────┐  ┌──────────────────────────┐
+│  Hybrid SMS Parser      │  │  Hybrid Statement Parser │
+│  tools/sms_parser.py    │  │  tools/statement_parser.py│
+│  ① Regex classifier    │  │  ① pdftotext -layout    │
+│  ② Regex extractor     │  │     (password-decrypt)   │
+│  ③ Gemma 4 fallback    │  │  ② Regex classifier +   │
+│  → 191/191 correct      │  │     Gemma 4 fallback     │
+└────────────┬─────────────┘  └─────────────┬─────────────┘
+             │ ParsedTransaction (Pydantic)  │
+             └───────────────┬───────────────┘
+                             ▼
+         ┌───────────────┐
+         │  SQLite       │  agent/ledger.py
+         │  Ledger       │  data/bob.db
+         └───────┬───────┘
+                 │
+      ┌──────────▼──────────────┐
+      │                         │
+      │   Gemma 4 E2B           │  agent/bob.py
+      │   Agent Loop            │  ollama.chat(tools=...)
+      │                         │
+      │  ┌─────────────────┐    │
+      │  │ Native Function │    │
+      │  │ Calling         │    │
+      │  └────────┬────────┘    │
+      └───────────┼─────────────┘
+                  │ calls
+        ┌─────────┼─────────┐
+        │         │         │
+        ▼         ▼         ▼
+  6 Ledger   Knowledge   Live Rates
+  Tools      RAG         (w/ offline
+             nomic-      fallback)
+             embed-text
 ```
 
 **Two Gemma models, both local:**
-- `gemma4:instruct` — the reasoning and function-calling brain
-- `gemma4:embedding` — powers the offline knowledge retrieval (RAG)
-
-**Offline-first by design:**
-Kill the WiFi. Bob still works. The only feature that degrades gracefully is live MMF/tariff rate fetching — and when it does, Bob tells you exactly which cached date he's working from.
+- `gemma4:e2b` — agent reasoning + native function calling
+- `nomic-embed-text` — knowledge corpus embedding (59 chunks, 5 files)
 
 ---
 
 ## Quickstart
 
-> ⚠️ Requires [Ollama](https://ollama.com) installed and Gemma 4 pulled locally. See setup below.
+### Prerequisites
+- Python 3.10+
+- [Ollama](https://ollama.com) v0.20+
+- `poppler-utils` (provides `pdftotext`, used to read your real M-Pesa statement PDF — not needed for the synthetic demo personas) — `apt install poppler-utils` (Linux) or `brew install poppler` (macOS)
 
+### 1. Install models
 ```bash
-# Clone
-git clone https://github.com/YOUR_USERNAME/Bob.git
-cd Bob
-
-# Install dependencies
-pip install -e .
-
-# Pull the model (first time only — ~3GB)
-ollama pull gemma4:instruct
-
-# Smoke test — confirm tool calling works
-python demo/smoke_test.py
-
-# Run Bob with a persona
-python demo/run.py --persona brian
+ollama pull gemma4:e2b
+ollama pull nomic-embed-text
 ```
 
-*Full setup instructions coming as the project progresses.*
+### 2. Clone and install
+```bash
+git clone https://github.com/Mwaisaks/Bob.git
+cd Bob
+python -m venv bob-venv
+source bob-venv/bin/activate
+pip install -e .
+```
+
+### 3. Generate demo data and build the index
+```bash
+# Generate synthetic M-Pesa histories for 3 student personas
+python data/generate_synthetic.py
+
+# Ingest into the SQLite ledger
+python tools/ingest.py --reset
+
+# Build the knowledge embedding index (runs once, ~60s on CPU)
+python tools/knowledge_lookup.py --build
+```
+
+### 4. Run
+```bash
+# Brian — HELB boom-bust student
+python demo/terminal_ui.py --persona brian
+
+# Wanjiku — irregular income, fee bleed
+python demo/terminal_ui.py --persona wanjiku
+
+# Athman — disciplined but leaking quietly
+python demo/terminal_ui.py --persona athman
+```
+
+### Try these questions
+- *"Where does my money go?"*
+- *"Why am I always broke by week 3?"*
+- *"How much have I paid in Fuliza fees?"*
+- *"Is Fuliza bad for me?"*
+- *"What's the current Ziidi interest rate?"*
+- *"Am I spending more than I earn?"*
 
 ---
 
-## Personas (Demo Data)
+## Using Your Own M-Pesa Data
 
-Bob ships with three synthetic student personas — realistic M-Pesa histories, zero real data in the repo.
+The three personas above are synthetic — a reproducible demo any judge can run without needing an M-Pesa account. But Bob also reads your **real** M-Pesa history, the way you'd actually get it:
 
-| Persona | Story | Core pain |
+1. On your phone, dial **`*334#`** → **My Account** → **M-PESA Statement** → choose a date range and request the statement.
+2. Safaricom emails you a **password-protected PDF**; the password itself arrives separately by SMS.
+3. Save the PDF somewhere on your machine (never commit it to a repo — `.gitignore` already excludes `data/real/` and any `*.pdf`).
+4. Run:
+   ```bash
+   python demo/terminal_ui.py --statement path/to/your_statement.pdf
+   ```
+   You'll be prompted for the password (it's never written to disk, logged, or stored in shell history).
+
+`tools/statement_parser.py` parses the statement table with the same hybrid regex + Gemma 4 fallback design as the SMS parser, then reconciles its totals against the statement's own printed SUMMARY block — on the statement used to build this, that reconciliation is exact (KES 0.00 delta on both Paid In and Withdrawn, 98/98 transactions classified by regex alone). Everything after that — every query tool, the RAG knowledge lookup, the agent loop — runs identically whether your data came from a demo persona or your own statement.
+
+### Alternative: your own SMS directly
+
+If you'd rather not request a full statement, Bob can also ingest your M-Pesa SMS directly — either pasted as text or exported programmatically:
+
+```bash
+python demo/terminal_ui.py --sms-file path/to/messages.txt
+```
+
+Two accepted formats:
+- **Plain text** — copy/forward your M-Pesa messages from your phone into a `.txt` file, one message per paragraph (a blank line between each).
+- **JSON** — the exact output of [Termux:API](https://wiki.termux.com/wiki/Termux:API)'s `termux-sms-list` command (see Roadmap below for the automated version of this path).
+
+Both go through the same hybrid regex + Gemma 4 `tools/sms_parser.py` used for the synthetic personas.
+
+---
+
+## The Three Personas
+
+| Persona | Profile | Financial story |
 |---|---|---|
-| **Brian** | HELB boom-bust cycle — 40% gone in week one | Disbursement-day discipline |
-| **Wanjiku** | Hustler with irregular income (mitumba + family sends) | Fee bleed, no buffer |
-| **Athman** | Disciplined saver leaking money quietly | Subscriptions, "it's only 50 bob" |
-
-Switch between them: `--persona brian \| wanjiku \| athman`
+| **Brian Otieno** | KU, Year 2, HELB student | HELB lands, 40% gone week one (food, entertainment), Fuliza by week three — the classic disbursement-day pattern |
+| **Wanjiku Kamau** | USIU, Year 3, mitumba hustler | Irregular income from resale sales + family top-ups. Her problem is *fee bleed*: many small sends, no buffer |
+| **Athman Hassan** | Strathmore, Year 4, part-time dev | Disciplined but leaks through subscriptions, airtime, and *"it's only 50 bob"* transactions |
 
 ---
 
-## Why Bob Corrects, Not Just Informs
+## Eval Results
 
-The system prompt carries explicit **corrective intent**, designed around a 2026 MIT pre-registered study ([Ross, So & Lo, arXiv:2604.27022](https://arxiv.org/abs/2604.27022)) which found:
+The hybrid SMS parser was evaluated against 191 synthetic M-Pesa messages with ground-truth labels:
 
-> An LLM prompted merely to "discuss" a financial misconception **entrenched that misconception in 27.6% of users** — worse than doing nothing. Corrective intent + argument matched to the user's level produced ~54-point belief shifts persisting 10+ days.
+| Field | Accuracy |
+|---|---|
+| Transaction type | 100% (191/191) |
+| Amount | 100% (191/191) |
+| Fee | 100% (191/191) |
+| Counterparty | 100% (191/191) |
+| Balance after | 100% (191/191) |
+| **Fully correct** | **100% (191/191)** |
 
-Bob is not a wellness chatbot. When you say something financially wrong, he engages and explains why — at your level. That's a design choice, not a personality quirk.
+**Path breakdown:** 191 via regex, 0 via Gemma fallback.
+
+Key finding: Gemma-only parsing at ~3 min/SMS on CPU was impractical for a 191-record dataset. The hybrid design (regex for known formats, Gemma for genuinely ambiguous ones) runs the full eval in seconds while keeping Gemma available for future format changes. This is documented as an intentional architectural decision, not a workaround.
+
+Run the eval yourself:
+```bash
+python eval/parser_eval.py
+```
 
 ---
 
@@ -118,50 +204,49 @@ Bob is not a wellness chatbot. When you say something financially wrong, he enga
 
 ```
 Bob/
-├── agent/          # Agent loop, prompts, trace logger
-├── tools/          # All deterministic tools (ledger, parser, fees, etc.)
+├── agent/
+│   ├── bob.py              # Agent loop — BobAgent class + CLI REPL
+│   └── ledger.py           # SQLite wrapper
 ├── data/
-│   ├── synthetic/  # Persona SMS dumps (safe to commit)
-│   └── real/       # ← gitignored, never committed
-├── knowledge/      # Curated Kenyan student finance corpus (HELB, Fuliza, MMFs, M-Pesa tariffs)
-├── eval/           # Parser accuracy harness + results
-├── demo/           # Smoke tests, run script, recorded transcripts
-├── PLAN.md         # Full phased build plan
-└── pyproject.toml
+│   ├── generate_synthetic.py   # Synthetic M-Pesa SMS generator
+│   ├── validate_synthetic.py   # Regex sanity checker
+│   └── synthetic/              # Generated JSONL files (3 personas)
+├── demo/
+│   ├── smoke_test.py       # Phase 0 tool-call validation
+│   └── terminal_ui.py      # Rich terminal demo interface
+├── eval/
+│   └── parser_eval.py      # Per-field accuracy evaluation harness
+├── knowledge/
+│   ├── helb.md             # HELB basics, disbursement, repayment, CRB
+│   ├── fuliza.md           # Fuliza terms, fees, dependency trap
+│   ├── mpesa_tariffs.md    # Full M-Pesa fee table + batching strategies
+│   ├── savings_products.md # Ziidi, Chumz, M-Shwari explained
+│   └── student_finance.md  # Budgeting frameworks, runway concept
+└── tools/
+    ├── sms_parser.py       # Hybrid SMS parser (regex + Gemma 4 fallback)
+    ├── statement_parser.py # Hybrid PDF statement parser (*334# journey)
+    ├── ingest.py           # SMS or statement → ledger pipeline
+    ├── query_tools.py      # 6 financial query functions + Ollama schemas
+    ├── knowledge_lookup.py # nomic-embed-text RAG over knowledge/
+    └── live_rates.py       # Online rates fetch with 3-tier offline fallback
 ```
-
----
-
-## Eval Results
-
-*(Will be populated after Phase 2 — parser accuracy on synthetic SMS)*
-
-| Model | Messages parsed | Accuracy | Fuliza edge cases |
-|---|---|---|---|
-| gemma4:instruct (E4B) | — | — | — |
-| gemma4:instruct (E2B) | — | — | — |
 
 ---
 
 ## Limitations & Roadmap
 
-**Out of scope (explicitly):**
-- Real M-Pesa API integration or money movement of any kind
-- Investment advice (Bob is information and education only — see [Cleo's disclaimer posture](https://web.meetcleo.com/))
-- iOS/Android app
+**Current limitations (honest, as required):**
+- No live, automatic M-Pesa access — you import a statement PDF, paste/export your own SMS, or use the synthetic demo personas; there's no background auto-sync yet (see roadmap below)
+- The statement parser treats a few transaction types as simplifications for balance-flow purposes: agent till deposits and M-Shwari withdrawals are counted as income-equivalent inflows, even though they're really your own cash or savings moving, not new money
+- CPU inference on E2B is 30–90 seconds per turn (real-data test above ran ~2 minutes on this laptop); E4B is slower still
+- Knowledge corpus is manually curated; no automatic updates when Safaricom changes tariffs
+- No investment advice of any kind — education and information only
 
-**Roadmap (post-submission):**
-- LiteRT / AI Edge on-device deployment → financial SMS never leave the phone, not just the laptop
-- Gemma-assisted dynamic transaction categorization (replace static map)
-- Sheng/Swahili code-switching demo transcripts
-- Weekly "money debrief" the agent generates unprompted from the ledger (agent-initiated behaviour)
-
----
-
-## Track
-
-**GDG Embu — Build with Gemma | Autonomous Agent Track**
-Gemma 4 native function calling, local-first.
+**Stated next steps:**
+- **Automatic SMS access via Termux:API (near-term, concretely scoped):** install [Termux](https://f-droid.org/packages/com.termux/) + [Termux:API](https://f-droid.org/packages/com.termux.api/) from F-Droid (not the Play Store — this sidesteps Google's policy restricting `READ_SMS` to default SMS/dialer apps, since the permission is granted to Termux, not Bob), then `termux-sms-list -l 200 -f mpesa > messages.json` dumps matching SMS as JSON. `--sms-file` already accepts exactly that format today (see "Using Your Own M-Pesa Data" above) — what's missing is only a wrapper script/cron job to automate the dump-and-ingest step, not new parsing logic. Deliberately not a native Play Store app: that path requires Bob to become the user's default SMS handler, a far bigger trust ask than this project's "no data leaves your device" pitch should require.
+- LiteRT/AI Edge on-device deployment (the `gemma4:e2b` weights are already small enough to target) — pairs naturally with the Termux path for a fully on-phone pipeline
+- Sheng/Swahili code-switching (the prompt layer supports it; needs curated conversation examples)
+- Weekly "money debrief" generated unprompted from the ledger (agent-initiated behaviour)
 
 ---
 
@@ -169,4 +254,7 @@ Gemma 4 native function calling, local-first.
 
 MIT — see [LICENSE](LICENSE)
 
-*Bob is a financial education tool. He is not a licensed financial adviser. All insights are based on your own data and publicly available information.*
+---
+
+*Built for the Build with Gemma Challenge, GDG Embu, July 2026.*  
+*No real financial data is committed to this repository. The statement parser was built and verified locally against one real (never-committed, gitignored) M-Pesa statement — see "Using Your Own M-Pesa Data" above.*

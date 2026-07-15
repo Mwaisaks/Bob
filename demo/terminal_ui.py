@@ -12,9 +12,17 @@ Run:
     python demo/terminal_ui.py --persona brian
     python demo/terminal_ui.py --persona wanjiku
     python demo/terminal_ui.py --persona athman
+
+Or load your own real M-Pesa statement (dial *334# on Safaricom to request
+one — see README "Using Your Own M-Pesa Data"):
+    python demo/terminal_ui.py --statement path/to/statement.pdf
+
+Or load your own SMS, pasted as text or exported via Termux:API:
+    python demo/terminal_ui.py --sms-file path/to/messages.txt
 """
 
 import argparse
+import getpass
 import json
 import sys
 import urllib.request
@@ -32,6 +40,8 @@ from rich.table import Table
 from rich.text import Text
 
 from agent.bob import BobAgent, PERSONAS
+from agent.ledger import Ledger
+from tools.ingest import ingest_statement, ingest_sms_text
 
 console = Console()
 
@@ -63,7 +73,7 @@ def _connectivity_badge(online: bool) -> Text:
 
 
 def _print_banner(persona: str, online: bool):
-    name, label = PERSONA_LABELS[persona]
+    name, label = PERSONA_LABELS.get(persona, (persona.title(), "Your real M-Pesa statement"))
     badge = _connectivity_badge(online)
 
     title_text = Text()
@@ -259,11 +269,47 @@ def run(persona: str):
 def main():
     parser = argparse.ArgumentParser(description="Bob — M-Pesa Finance Assistant")
     parser.add_argument(
-        "--persona", choices=PERSONAS, default="brian",
-        help="Student persona to load (default: brian)"
+        "--persona", choices=PERSONAS, default=None,
+        help="Student persona to load (default: brian, unless --statement is given)"
+    )
+    parser.add_argument(
+        "--statement", type=Path,
+        help="Path to a real M-Pesa statement PDF (from *334# — see README)"
+    )
+    parser.add_argument(
+        "--password",
+        help="Statement PDF password (prompted securely if omitted)"
+    )
+    parser.add_argument(
+        "--sms-file", type=Path,
+        help="Path to pasted SMS text or termux-sms-list JSON export"
     )
     args = parser.parse_args()
-    run(args.persona)
+
+    modes_given = sum(bool(x) for x in (args.persona, args.statement, args.sms_file))
+    if modes_given > 1:
+        parser.error("--persona, --statement, and --sms-file are mutually exclusive")
+
+    if args.statement:
+        password = args.password or getpass.getpass("Statement PDF password: ")
+        console.print("[dim]Parsing statement...[/dim]")
+        ledger = Ledger()
+        ledger.clear(persona="me")
+        count, stats = ingest_statement(args.statement, password, "me", ledger)
+        console.print(
+            f"[dim]Loaded {count} transactions "
+            f"({stats['via_regex']} via regex, {stats['via_gemma']} via Gemma).[/dim]\n"
+        )
+        run("me")
+    elif args.sms_file:
+        console.print("[dim]Parsing SMS...[/dim]")
+        ledger = Ledger()
+        ledger.clear(persona="me")
+        ingested, failed = ingest_sms_text(args.sms_file, "me", ledger)
+        console.print(f"[dim]Loaded {ingested} transactions ({failed} failed to parse).[/dim]\n")
+        run("me")
+    else:
+        run(args.persona or "brian")
 
 
 if __name__ == "__main__":

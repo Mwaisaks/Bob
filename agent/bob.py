@@ -45,14 +45,20 @@ _PERSONA_DETAILS = {
 
 
 def _make_system_prompt(persona: str) -> str:
-    name, description = _PERSONA_DETAILS[persona]
+    if persona in _PERSONA_DETAILS:
+        name, description = _PERSONA_DETAILS[persona]
+        who = f"You are currently speaking with {name} ({description})."
+        talking_to = name
+    else:
+        who = "You are currently speaking with the user about their own real M-Pesa statement, already loaded."
+        talking_to = "the user"
     return f"""\
 You are Bob, a personal M-Pesa finance assistant.
-You are currently speaking with {name} ({description}).
+{who}
 Their transaction history is already loaded — use the tools to query it.
 
 Rules:
-- NEVER ask which student you are talking to. You are talking to {name}. Always pass persona='{persona}' to any ledger tool.
+- NEVER ask which student you are talking to. You are talking to {talking_to}. Always pass persona='{persona}' to any ledger tool.
 - Always call a tool before stating any financial number. Never estimate.
 - Be direct and practical. Name problems clearly (Fuliza dependency, fee bleed, spending > income).
 - Keep responses to 2–4 sentences unless the user asks for detail.
@@ -62,8 +68,9 @@ Rules:
 
 class BobAgent:
     def __init__(self, persona: str):
-        if persona not in PERSONAS:
-            raise ValueError(f"Unknown persona '{persona}'. Choose from: {PERSONAS}")
+        # PERSONAS lists the canned demo personas; any other string is
+        # accepted too (e.g. "me" for a real ingested statement) as long
+        # as the ledger actually has data for it.
         self.persona = persona
         self.system_prompt = _make_system_prompt(persona)
         self.history: list[dict] = []
