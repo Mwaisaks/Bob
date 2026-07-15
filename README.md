@@ -12,7 +12,7 @@ Bob is an offline-first financial agent for Kenyan university students. It reads
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/CyIDcUxzcc78jCpD.svg)](https://asciinema.org/a/CyIDcUxzcc78jCpD)
+[![asciicast](https://asciinema.org/a/ewKl1zzRgpCGOouT.svg)](https://asciinema.org/a/ewKl1zzRgpCGOouT)
 
 A real, unedited terminal recording — cold start, a multi-tool question, a live-rates question, then the network is killed and the same question is asked again to show the offline fallback (Phase 5's "kill-the-WiFi" test). Every wait is real Gemma 4 CPU inference, not sped up. Reproducible via `demo/record_demo.py` (drives the same `terminal_ui.py` a human would run, with scripted typing instead of manual).
 

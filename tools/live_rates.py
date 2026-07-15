@@ -77,10 +77,14 @@ def _try_online_fetch() -> Optional[dict]:
         import urllib.request
         import urllib.error
 
-        # Safaricom publicly lists M-Pesa charges at their developer portal.
-        # We check connectivity by hitting a lightweight endpoint.
-        url = "https://www.safaricom.co.ke/personal/m-pesa/m-pesa-rates"
-        req = urllib.request.Request(url, headers={"User-Agent": "BobAgent/1.0"})
+        # Safaricom publicly lists M-Pesa consumer tariffs here. A bot-like
+        # User-Agent (e.g. "BobAgent/1.0") gets a 403 from this site — a
+        # browser-like one is required to actually reach it.
+        url = "https://www.safaricom.co.ke/main-mpesa/m-pesa-for-you/tariffs-limits/consumer-tariffs-limits"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
         with urllib.request.urlopen(req, timeout=5) as resp:
             # If we get here, we are online. Return the hardcoded reference rates
             # with a fresh timestamp — in production this would parse the page.
