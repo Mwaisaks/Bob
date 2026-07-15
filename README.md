@@ -90,43 +90,41 @@ Raw M-Pesa SMS               Real M-Pesa Statement PDF
 - [Ollama](https://ollama.com) v0.20+
 - `poppler-utils` (provides `pdftotext`, used to read your real M-Pesa statement PDF — not needed for the synthetic demo personas) — `apt install poppler-utils` (Linux) or `brew install poppler` (macOS)
 
-### 1. Install models
+### One-command path (recommended)
+
 ```bash
-ollama pull gemma4:e2b
-ollama pull nomic-embed-text
+git clone https://github.com/Mwaisaks/Bob.git
+cd Bob
+make install        # venv + pip install -e .
+make pull-models     # ollama pull gemma4:e2b, nomic-embed-text
+make demo            # generates synthetic data, builds the knowledge index, launches Brian
 ```
 
-### 2. Clone and install
+`make demo-wanjiku` and `make demo-athman` load the other two personas. Data generation only runs once — re-running `make demo` after that goes straight to the chat prompt.
+
+### Manual path (equivalent, if you'd rather not use `make`)
+
 ```bash
+# 1. Install models
+ollama pull gemma4:e2b
+ollama pull nomic-embed-text
+
+# 2. Clone and install
 git clone https://github.com/Mwaisaks/Bob.git
 cd Bob
 python -m venv bob-venv
 source bob-venv/bin/activate
 pip install -e .
-```
 
-### 3. Generate demo data and build the index
-```bash
-# Generate synthetic M-Pesa histories for 3 student personas
-python data/generate_synthetic.py
+# 3. Generate demo data and build the index
+python data/generate_synthetic.py       # synthetic M-Pesa histories, 3 personas
+python tools/ingest.py --reset          # parse into the SQLite ledger
+python tools/knowledge_lookup.py --build   # embed the knowledge corpus (~60s on CPU)
 
-# Ingest into the SQLite ledger
-python tools/ingest.py --reset
-
-# Build the knowledge embedding index (runs once, ~60s on CPU)
-python tools/knowledge_lookup.py --build
-```
-
-### 4. Run
-```bash
-# Brian — HELB boom-bust student
-python demo/terminal_ui.py --persona brian
-
-# Wanjiku — irregular income, fee bleed
-python demo/terminal_ui.py --persona wanjiku
-
-# Athman — disciplined but leaking quietly
-python demo/terminal_ui.py --persona athman
+# 4. Run
+python demo/terminal_ui.py --persona brian     # HELB boom-bust
+python demo/terminal_ui.py --persona wanjiku   # irregular income, fee bleed
+python demo/terminal_ui.py --persona athman    # disciplined but leaking quietly
 ```
 
 ### Try these questions
@@ -197,10 +195,7 @@ The hybrid SMS parser was evaluated against 191 synthetic M-Pesa messages with g
 
 Key finding: Gemma-only parsing at ~3 min/SMS on CPU was impractical for a 191-record dataset. The hybrid design (regex for known formats, Gemma for genuinely ambiguous ones) runs the full eval in seconds while keeping Gemma available for future format changes. This is documented as an intentional architectural decision, not a workaround.
 
-Run the eval yourself:
-```bash
-python eval/parser_eval.py
-```
+Run the eval yourself: `make eval` (or `python eval/parser_eval.py` directly).
 
 ---
 
