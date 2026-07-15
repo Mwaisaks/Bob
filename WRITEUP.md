@@ -2,23 +2,23 @@
 
 ## The Moment That Built This
 
-It's a Thursday afternoon in Nairobi. HELB has disbursed — KES 40,000, meant to cover the whole semester, three months. KES 40,000 hits your M-Pesa. You send KES 5,000 home, clear a friend's debt, buy food, airtime, and a pair of shoes you'd been putting off. By the following Tuesday, you have KES 3,200 left — and the next disbursement isn't due for another three months. By Friday, Fuliza has been activated twice.
+It's a Thursday afternoon in Nairobi. HELB has disbursed: KES 40,000, meant to cover the whole semester, hits your M-Pesa. You send KES 5,000 home, clear a friend's debt, buy food, airtime, and a pair of shoes you'd been putting off. By the following Tuesday, you have KES 3,200 left — and the next disbursement isn't due for another three months. By Friday, Fuliza has been activated twice.
 
-This is not an edge case. This is the default experience for a significant portion of Kenya's 700,000+ university students. The money did not disappear — it was spent on real things. But the student had no tool that could show them, in real time, *what their pattern was*, what it would cost them, and what an alternative looked like.
+This isn't an edge case — it's the default experience for a significant share of Kenya's 700,000+ university students. The money didn't disappear, it was spent on real things. The student just had no tool to show them, in real time, *what their pattern was* and what it cost.
 
-Every M-Pesa transaction generates a structured SMS. The data is there. The problem is that no tool has ever reasoned over it locally, with the student's actual numbers, without requiring them to hand their data to a server.
+Every M-Pesa transaction generates a structured SMS — the data is there. No tool has ever reasoned over it locally, with the student's own numbers, without handing that data to a server. Existing Kenyan trackers stop at the transaction list; they don't name a pattern, cost it out, or correct it. MIT AgeLab research on financial coaching found undirected "wellness" chat about money actually *entrenches* existing beliefs — correction requires specific, data-grounded challenge.
 
 Bob is that tool.
 
 ### A note on the synthetic data
 
-Bob uses no real user transaction data — every SMS in the repository is synthetic. To ensure the synthetic data reflects real-world patterns, I studied the actual SMS formats that Safaricom sends for all 8 transaction types (send money, receive, buy goods, paybill, airtime, Fuliza borrow/repay, Ziidi) from my own inbox and those of contacts who shared their formats. The generator replicates the exact text structure, transaction code format, amount formatting, and fee structure. The result is data a Kenyan M-Pesa user would read as authentic.
+No real user transaction data is committed here — the demo SMS is synthetic, generated from Safaricom's real 8 SMS formats (studied from my own inbox and contacts') so it reads as authentic to a Kenyan M-Pesa user.
 
 ---
 
 ## What Bob Does
 
-Bob is a local-first financial agent. You load your M-Pesa statement — the PDF you already get by dialing `*334#`, or one of the synthetic demo personas — ask a question in plain language, and Bob returns a grounded answer, backed by your own transaction data, computed entirely on your device.
+Load your M-Pesa statement (the PDF from `*334#`, or a synthetic demo persona), ask a question in plain language, get a grounded answer — backed by your own transaction data, computed entirely on your device.
 
 The core demonstration:
 
@@ -34,9 +34,7 @@ Bob: Your main leak is spending KES 1,785 more than you earned last month.
      full the moment money arrives.
 ```
 
-Gemma autonomously decided that answering "where does my money leak?" required *two* tool calls — income vs spending, *and* fee analysis. It made that decision without being told. The answer it gave back is grounded in the actual numbers, not a general statement about budgeting.
-
-No data left the machine. The whole exchange ran on an 8-year-old laptop's CPU.
+Gemma autonomously decided that answering "where does my money leak?" required *two* tool calls, unprompted, and grounded its answer in the actual numbers rather than generic budgeting advice. No data left the machine — the whole exchange ran on an 8-year-old laptop's CPU.
 
 ---
 
@@ -54,97 +52,45 @@ QH3D21XBKL Confirmed. KES1,500.00 received from WANJIKU KAMAU
 Transaction cost, KES0.00.
 ```
 
-Bob parses this into a structured `ParsedTransaction` object: `{type: "receive", amount: 1500.00, fee: 0.0, counterparty: "WANJIKU KAMAU", balance_after: 3420.00, timestamp: "2026-07-05T15:14:00"}`.
+Bob parses this into a structured `ParsedTransaction`: `{type: "receive", amount: 1500.00, fee: 0.0, counterparty: "WANJIKU KAMAU", balance_after: 3420.00, timestamp: "2026-07-05T15:14:00"}`.
 
-The design is a hybrid: a regex classifier handles the 8 known M-Pesa SMS formats deterministically (fast, 100% accurate on known formats), and Gemma 4 handles the fallback for genuinely ambiguous or new format SMS. This is an intentional architectural choice — not a workaround.
-
-**Eval result: 191/191 synthetic messages parsed correctly (100% on all 5 fields).**
-
-The honest pivot: Gemma-only parsing at ~3 minutes per SMS on CPU was impractical. The hybrid approach takes seconds on the full dataset. We documented this tradeoff explicitly because it's the right engineering decision, and because hiding it would be dishonest.
+The design is a hybrid: a regex classifier handles the 8 known SMS formats deterministically, Gemma 4 handles genuinely ambiguous or new-format SMS — an intentional architectural choice, not a workaround. **Eval result: 191/191 synthetic messages parsed correctly (100%, all 5 fields).** The honest pivot: Gemma-only parsing at ~3 minutes per SMS on CPU was impractical; the hybrid runs the full dataset in seconds.
 
 ### 1b. Statement Parser — the real onboarding path
 
-The demo above uses synthetic SMS, but a real Kenyan user doesn't hand Bob individual messages. The actual journey is: dial `*334#` → My Account → M-PESA Statement → a password-protected PDF arrives. So `tools/statement_parser.py` applies the same hybrid design to that PDF: `pdftotext -layout` decrypts and extracts the fixed-column transaction table (no new Python dependency — poppler's `pdftotext` binary is already ubiquitous), a regex classifier maps each row's `Details` text to a transaction type, and Gemma 4 is the fallback for anything unmatched.
+A real Kenyan user doesn't hand Bob individual messages — the actual journey is `*334#` → My Account → M-PESA Statement → a password-protected PDF. `tools/statement_parser.py` applies the same hybrid design to that PDF: `pdftotext -layout` decrypts and extracts the fixed-column transaction table (no new Python dependency), a regex classifier maps each row's `Details` text to a type, and Gemma 4 is the fallback for anything unmatched.
 
-There's no ground-truth label set for real financial data, so accuracy is verified differently than the SMS parser: by reconciling the parser's own summed totals against the numbers Safaricom prints on the statement itself. On the one real statement used to build and test this (98 transactions, 15 days, never committed to this repository — see `.gitignore`), that reconciliation is exact: **KES 0.00 delta on both Paid In and Withdrawn, 98/98 transactions classified via regex alone, zero Gemma fallbacks needed.** Bob then answered real questions grounded in that data end-to-end (e.g. "where does my money go?" → correctly cited the real KES 21,285.20 total spend, broken down by category).
-
-One honest simplification: a couple of real-statement transaction types (agent till cash deposits, M-Shwari withdrawals back into M-Pesa) are counted as income-equivalent inflows for balance-flow purposes, even though they're really the user's own money moving between accounts, not new income. This is called out explicitly in the README's Limitations section rather than left implicit.
-
-There's also a lighter-weight path for users who'd rather not request a full statement: `--sms-file` ingests M-Pesa SMS pasted directly as text (or exported as JSON from Termux:API's `termux-sms-list` — see Roadmap), running through the same `tools/sms_parser.py` used for the synthetic personas.
+There's no ground-truth label set for real financial data, so accuracy is verified by reconciling the parser's summed totals against the numbers Safaricom prints on the statement itself. On the one real statement used to test this (98 transactions, 15 days, never committed — see `.gitignore`), that reconciliation is exact: **KES 0.00 delta on both Paid In and Withdrawn, 98/98 classified via regex alone.** Bob then answered real questions grounded in that data end-to-end (one modeling simplification is named in Limitations).
 
 ### 2. Native Function Calling (the agent loop)
 
-Gemma 4 orchestrates six financial analysis tools via native function calling:
+Gemma 4 orchestrates six financial analysis tools via native function calling: `get_spending_summary`, `get_balance_trend`, `get_top_counterparties`, `get_fee_analysis`, `get_fuliza_summary`, `get_income_vs_spending`.
 
-- `get_spending_summary` — KES spent by category, last N days
-- `get_balance_trend` — running balance over time
-- `get_top_counterparties` — top merchants and recipients
-- `get_fee_analysis` — fees paid by transaction type
-- `get_fuliza_summary` — Fuliza borrow/repay/charge history
-- `get_income_vs_spending` — net positive or negative, period-over-period
-
-When a user asks "why am I always broke by week 3?", Gemma decides which tools to call, calls them, receives the JSON results, and synthesises a natural language answer grounded in those exact numbers. The tool-call traces are shown inline in the terminal UI — the "look, real function calling" moment the track asks for.
+When a user asks "why am I always broke by week 3?", Gemma decides which tools to call, executes them, and synthesises an answer grounded in the JSON results. Tool-call traces are shown inline in the terminal UI — the "real function calling" moment the track asks for.
 
 ### 3. Local RAG (knowledge layer)
 
-A second local model — `nomic-embed-text` — embeds a curated 59-chunk knowledge corpus (HELB mechanics, Fuliza daily fees, M-Pesa tariff table, Ziidi/M-Shwari explained, student budgeting frameworks). When a user asks about Fuliza terms or HELB repayment, Gemma calls `search_knowledge`, retrieves the top-k relevant chunks via cosine similarity, and answers with citations.
-
-**Two local models, two jobs:** Gemma 4 for reasoning and function calling; nomic-embed-text for retrieval. Both run offline.
+A second local model, `nomic-embed-text`, embeds a curated 59-chunk knowledge corpus (HELB, Fuliza, M-Pesa tariffs, Ziidi/M-Shwari, budgeting frameworks). Gemma calls `search_knowledge`, retrieves top-k chunks by cosine similarity, and cites its source. Two local models, two jobs: Gemma 4 reasons, nomic-embed-text retrieves. Both offline.
 
 ---
 
 ## The Offline-First Design Decision
 
-Most financial apps require a network connection. Bob treats the network as optional.
-
-The live rates tool (`tools/live_rates.py`) follows a three-tier fallback:
-1. Fetch from Safaricom's public rates page (if online)
-2. Use disk-cached values from the last successful fetch
-3. Use hardcoded reference rates (always available, even on a plane)
-
-When the fallback is used, the agent is required to mention that rates are cached and provide the date. The agent cannot silently present stale data as current.
-
-The result: every feature except live rate updates works in airplane mode. The knowledge corpus, the ledger queries, the function calling loop, the RAG — all local.
-
----
-
-## The Problem With Existing Tools
-
-Kenyan personal finance apps exist. The gap is not the ledger — it's the intelligence layer.
-
-Current tools (Pesapal, Kopo Kopo, Jenga, various M-Pesa statement exporters) show you a transaction list. They do not:
-- Identify your personal spending pattern and name it
-- Tell you that your Fuliza use this month is higher than last month and calculate what it cost you
-- Explain that your 5 separate sends to your mother this month cost KES 35 in fees when one send of KES 2,500 would have cost KES 33
-- Connect your spending behaviour to corrective advice grounded in how you specifically spend
-
-Bob's corrective design is deliberate. Research from MIT's AgeLab on financial coaching tools found that undirected "wellness" chat — asking how someone feels about their money — actually *entrenches* existing beliefs rather than changing behaviour. Correction requires specific, personalised, data-grounded challenge. That is what the query tools + agent loop are designed to deliver.
+Most financial apps require a network connection; Bob treats the network as optional. `tools/live_rates.py` tries a live fetch, falls back to disk-cached values, then to hardcoded reference rates — and is required to disclose when it's using cached data rather than presenting it as current. Every feature except live rate updates works in airplane mode.
 
 ---
 
 ## Why This Problem Is Real — Primary Research
 
-Before building, I validated that the HELB boom-bust pattern and M-Pesa tracking gap were not just my personal experience. I spoke informally with university students about their relationship with their M-Pesa data, then backed those conversations with an anonymous survey.
+Before building, I validated that the HELB boom-bust pattern and M-Pesa tracking gap weren't just my personal experience — informal conversations, then an anonymous 8-question survey (no name, phone, or email collected — the same privacy stance as Bob itself), closed at 30 responses due to the submission deadline. Respondents skewed regionally (mostly Meru University of Science and Technology and neighbours, plus single responses from Strathmore, Kenyatta University, and UoN) — a function of who the link reached in a week, not a deliberate cross-section, worth stating plainly rather than dressed up as more representative than it is.
 
-I ran an anonymous, 8-question survey (no name, phone, or email collected — the same privacy stance as Bob itself) and closed it at 30 responses, due to time constraints ahead of the submission deadline. Most respondents were from Meru University of Science and Technology and neighboring institutions, with single responses from Strathmore, Kenyatta University, and the University of Nairobi. The sample skews regionally — it reflects who the survey link actually reached in a week, not a deliberate cross-section — but the pattern inside it is consistent enough to be worth reporting honestly rather than dressed up as more representative than it is.
+Of the 23 HELB recipients, 87% run out of money before the next disbursement at least "sometimes" (43% "almost always"). Only 37% check their M-Pesa spending regularly. Fuliza usage was common (67%), but 85% of those users had no idea how much they'd paid in fees last month. Asked if they'd use a private, local-only tool with no login: 73% yes outright, 93% yes-or-maybe.
 
-Of the 23 respondents who receive HELB, 87% said they run out of money before the next disbursement at least "sometimes," and 43% said "almost always." Only 37% of all respondents said they check where their M-Pesa money goes regularly — most only look after the fact, or only after a bad decision. Fuliza usage was common (67%), but among those users, 85% had no idea how much they'd paid in fees the previous month. And when asked directly whether they'd use a private, local-only tool with no login and no data leaving their phone, 73% said yes outright, 93% said yes or maybe.
-
-The numbers say what I expected them to say, but hadn't proven before building: the HELB boom-bust pattern isn't a personal quirk, self-tracking is rare, Fuliza's cost is genuinely invisible to the people paying it, and the privacy-first design isn't a nice-to-have — it's what students said they actually want.
+The numbers prove what I expected but hadn't shown before building: the boom-bust pattern isn't a personal quirk, self-tracking is rare, Fuliza's cost is genuinely invisible, and privacy-first isn't a nice-to-have — it's what students said they want.
 
 ---
 
-
-Wanjiku Kamau is a USIU Year 3 student running a small mitumba resale business. Her income is irregular: sometimes KES 3,000 in a day, sometimes nothing for a week. Her M-Pesa history shows 72 transactions over 60 days.
-
-Bob's fee analysis for Wanjiku's data:
-- Total fees paid: KES 297 over 60 days
-- Primary driver: 12 separate send_money transactions averaging KES 280 each
-- Batching those 12 sends into 4 would have cost KES 132 instead of KES 297 — a saving of KES 165
-
-KES 165 is not a lot. Annualised, it is KES 1,000 — which is Wanjiku's single largest week of mitumba profit. The fee bleed problem is not about large amounts. It is about the accumulation of individually invisible small decisions.
-
-Bob can show Wanjiku that specific number, for her specific pattern, in her specific context. No generic app does that.
+**Wanjiku Kamau**, a USIU mitumba reseller, lost KES 297 to fees over 60 days — mostly 12 small sends that batching into 4 would have cut by KES 165, her single largest week of profit. No generic tracker names that number for her specific pattern; Bob does.
 
 ---
 
@@ -163,30 +109,21 @@ Bob can show Wanjiku that specific number, for her specific pattern, in her spec
 
 ## Limitations (Honest)
 
-- No live M-Pesa API integration — a real statement is imported manually as a PDF (the actual `*334#` journey), or one of the three synthetic demo personas is used. There's no background auto-sync.
-- The statement parser treats agent till cash deposits and M-Shwari withdrawals as income-equivalent inflows for balance-flow purposes, even though they're the user's own money moving between accounts, not new income. Named explicitly rather than left implicit.
-- CPU inference at E2B is 30–90 seconds per turn in the synthetic demo; a full end-to-end run against a real 98-transaction statement took ~2 minutes on the development laptop. This is acceptable for a demo and a use case where the user is looking at financial data, not instant messaging. E4B is slower and was deprioritised after testing.
-- Knowledge corpus is manually curated and will drift as Safaricom updates tariffs.
-- No investment advice — education and information only.
+- No live M-Pesa API integration — real data is imported manually (PDF or SMS export) or a synthetic persona is used. No background auto-sync yet.
+- Agent-till deposits and M-Shwari withdrawals are counted as income-equivalent inflows, though they're the user's own money moving between accounts, not new income.
+- CPU inference at E2B is 30–90 seconds per turn (~2 minutes for a full real-statement run) — fine for a look-at-your-data use case, not instant messaging.
+- Knowledge corpus is manually curated and will drift as tariffs change. No investment advice — education only.
 
 ---
 
 ## Roadmap
 
-### Near-term (next 3 months)
-- **LiteRT on-device:** E2B weights are small enough to target. The stated next step is moving inference from Ollama/CPU to LiteRT for sub-5 second responses on a mid-range Android.
-- **Automatic SMS access via Termux:API:** statement import and manual SMS-paste both already work end-to-end; `--sms-file` already accepts `termux-sms-list`'s JSON output today, so a Termux (installed from F-Droid, not the Play Store) wrapper script that runs `termux-sms-list -f mpesa` and pipes it into Bob would close the loop with no new parsing logic. This deliberately avoids the native-app path: Google Play Store restricts `READ_SMS` to default SMS/dialer apps, and asking users to make a hackathon finance app their default texting app is a bigger trust ask than this project's privacy pitch should require.
-- **Transaction categorization:** counterparty names (NAIVAS SUPERMARKET, JAVA HOUSE, SAFARICOM DATA) map to categories (groceries, food/entertainment, airtime). A static map covers 80% of cases; Gemma handles the rest. This turns "you spent KES 5,940 on buy_goods" into "you spent KES 2,100 at supermarkets, KES 1,800 on food out, KES 900 on WiFi/data."
-
-### Medium-term
-- **Multi-institution support:** students also use Equity, KCB, Cooperative Bank, and MMFs. The same SMS parsing pipeline applies — each institution has a consistent SMS format. M-Pesa was first because every student has it; the others are additive.
-- **Sheng/Swahili:** the prompt layer supports code-switching. 2–3 curated example conversations would unlock the Local Language track's audience.
-- **Weekly money debrief:** an agent-initiated summary generated from the ledger unprompted — the agent tells you how your week went without you having to ask.
-
-### Future (with appropriate caution)
-- **Investment guidance:** pointing students toward Ziidi, Chumz, and M-Shwari based on their actual balance patterns — not generic advice, but *"your average daily balance over the last 30 days was KES 800; if you had auto-saved KES 50/day to Ziidi, you would have earned KES 12 in interest and never needed Fuliza."* Any investment guidance would comply with CMA regulations and be framed as education, not advice.
+- **Automatic SMS access via Termux:API:** `--sms-file` already accepts `termux-sms-list`'s JSON output today; a Termux wrapper script (installed from F-Droid, not the Play Store) would close the loop with no new parsing logic. Deliberately not a native app: Play Store restricts `READ_SMS` to default SMS/dialer apps, a bigger trust ask than this project's privacy pitch should require.
+- **LiteRT on-device:** E2B weights are small enough to target, for sub-5 second responses on a mid-range Android.
+- **Transaction categorization:** counterparty names → spending categories (groceries, food, airtime), static map + Gemma for the rest. Turns "KES 5,940 on buy_goods" into a real breakdown.
+- Further out: multi-institution support, Sheng/Swahili code-switching, an agent-initiated weekly debrief, CMA-compliant investment education.
 
 ---
 
 *Repo: https://github.com/Mwaisaks/Bob*  
-*All data in the repository is synthetic. No real M-Pesa transactions were used.*
+*No real financial data is committed to this repository. The statement parser was built and verified locally against one real, never-committed M-Pesa statement.*
