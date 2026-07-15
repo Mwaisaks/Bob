@@ -12,6 +12,10 @@ Bob is an offline-first financial agent for Kenyan university students. It reads
 
 ## Demo
 
+[![asciicast](https://asciinema.org/a/CyIDcUxzcc78jCpD.svg)](https://asciinema.org/a/CyIDcUxzcc78jCpD)
+
+A real, unedited terminal recording — cold start, a multi-tool question, a live-rates question, then the network is killed and the same question is asked again to show the offline fallback (Phase 5's "kill-the-WiFi" test). Every wait is real Gemma 4 CPU inference, not sped up. Reproducible via `demo/record_demo.py` (drives the same `terminal_ui.py` a human would run, with scripted typing instead of manual).
+
 ```
 You: where does my money leak?
 
@@ -213,7 +217,9 @@ Bob/
 │   └── synthetic/              # Generated JSONL files (3 personas)
 ├── demo/
 │   ├── smoke_test.py       # Phase 0 tool-call validation
-│   └── terminal_ui.py      # Rich terminal demo interface
+│   ├── terminal_ui.py      # Rich terminal demo interface
+│   ├── record_demo.py      # Reproduces the submission demo recording
+│   └── recordings/         # asciinema .cast files
 ├── eval/
 │   └── parser_eval.py      # Per-field accuracy evaluation harness
 ├── knowledge/
